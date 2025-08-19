@@ -173,6 +173,11 @@ export default function App() {
           <p>
             All processing happens locally in your browser using <code>pdf-lib</code> and <code>pdfjs-dist</code>. No server required.
           </p>
+          <p className="mt-2">
+            <a href="https://github.com/tko39/pdf-tools" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-700">
+              View source on GitHub
+            </a>
+          </p>
         </footer>
       </div>
     </div>

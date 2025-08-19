@@ -7,7 +7,7 @@ import tailwindcss from "@tailwindcss/vite"
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
-    chunkSizeWarningLimit: 1024,
+    chunkSizeWarningLimit: 2048,
   },
   base: "/pdf-tools/",
 })
