@@ -114,7 +114,7 @@ export default function App() {
       <div className="mx-auto max-w-5xl p-6">
         <header className="mb-6">
           <h1 className="text-2xl md:text-3xl font-semibold">PDF Merger (Frontend‑only)</h1>
-          <p className="text-sm text-gray-600">Drop PDFs, reorder, and merge — all in your browser. No uploads.</p>
+          <p className="text-sm text-gray-600">Drop PDFs, reorder, and merge - all in your browser. No uploads.</p>
         </header>
 
         <div

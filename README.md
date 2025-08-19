@@ -1,7 +1,7 @@
 # 📑 PDF Tools – Browser-based PDF Merger
 
 Frontend-only PDF merger built with **React + Vite + TypeScript**.  
-Drag & drop PDFs, reorder them visually, and merge into a single file — **all locally in your browser**.  
+Drag & drop PDFs, reorder them visually, and merge into a single file - **all locally in your browser**.  
 No server. No uploads. 100% client-side.
 
 👉 **Live demo:** [kraspel.com/pdf-tools](https://www2.kraspel.com/pdf-tools)
@@ -14,10 +14,10 @@ No server. No uploads. 100% client-side.
 - 🔀 **Reorder PDFs** via drag-and-drop (powered by [@dnd-kit](https://dndkit.com/))
 - 📄 **Thumbnail previews** of the first page
 - 📝 **Rename output file** before downloading
-- ⚡ **Fast & secure** — all work is done in your browser using:
+- ⚡ **Fast & secure** - all work is done in your browser using:
   - [`pdf-lib`](https://github.com/Hopding/pdf-lib) (merging pages)
   - [`pdfjs-dist`](https://github.com/mozilla/pdf.js/) (rendering thumbnails)
-- 🛡️ **Privacy-friendly** — your PDFs never leave your device
+- 🛡️ **Privacy-friendly** - your PDFs never leave your device
 
 ---
 
