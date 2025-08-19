@@ -1,69 +1,92 @@
-# React + TypeScript + Vite
+# 📑 PDF Tools – Browser-based PDF Merger
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend-only PDF merger built with **React + Vite + TypeScript**.  
+Drag & drop PDFs, reorder them visually, and merge into a single file — **all locally in your browser**.  
+No server. No uploads. 100% client-side.
 
-Currently, two official plugins are available:
+👉 **Live demo:** [kraspel.com/pdf-tools](https://www2.kraspel.com/pdf-tools)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+---
 
-## Expanding the ESLint configuration
+## ✨ Features
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- 📂 **Drag & Drop PDFs** into the page
+- 🔀 **Reorder PDFs** via drag-and-drop (powered by [@dnd-kit](https://dndkit.com/))
+- 📄 **Thumbnail previews** of the first page
+- 📝 **Rename output file** before downloading
+- ⚡ **Fast & secure** — all work is done in your browser using:
+  - [`pdf-lib`](https://github.com/Hopding/pdf-lib) (merging pages)
+  - [`pdfjs-dist`](https://github.com/mozilla/pdf.js/) (rendering thumbnails)
+- 🛡️ **Privacy-friendly** — your PDFs never leave your device
 
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+---
 
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
+## 🚀 Getting Started
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Clone the repo and install dependencies:
+
+```bash
+git clone https://github.com/yourusername/pdf-tools.git
+cd pdf-tools
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Run in development mode:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run dev
 ```
+
+Build for production:
+
+```bash
+npm run build
+```
+
+Preview the build:
+
+```bash
+npm run preview
+```
+
+---
+
+## 📂 Project Structure
+
+```
+pdf-tools/
+├── public/         # static assets (favicon, logo, etc.)
+├── src/
+│   ├── components/ # UI components (e.g. SortableCard)
+│   ├── lib/        # PDF helpers (fileToBytes, makeThumb, types)
+│   └── App.tsx     # main app logic
+├── vite.config.ts
+├── index.html
+└── package.json
+```
+
+---
+
+## 🛠️ Tech Stack
+
+- [React](https://reactjs.org/) + [Vite](https://vitejs.dev/) + [TypeScript](https://www.typescriptlang.org/)
+- [Tailwind CSS](https://tailwindcss.com/) (utility-first styling)
+- [@dnd-kit](https://github.com/clauderic/dnd-kit) (sortable drag & drop)
+- [pdf-lib](https://pdf-lib.js.org/) (PDF manipulation)
+- [pdfjs-dist](https://github.com/mozilla/pdf.js) (PDF parsing + thumbnails)
+
+---
+
+## 📖 Usage
+
+1. Open the app in your browser ([demo link](https://www2.kraspel.com/pdf-tools)).
+2. Drop one or more PDFs into the upload box.
+3. Reorder them as needed.
+4. Set an output filename (optional).
+5. Click **Merge PDFs** and download the merged file.
+
+---
+
+## 📜 License
+
+MIT License © 2025 \Tal Kramer
