@@ -37,6 +37,10 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
   const wrapMeasureRef = useRef<HTMLDivElement | null>(null)
   const textMeasureRef = useRef<HTMLTextAreaElement | null>(null)
 
+  // track the current pdf.js render task + a token to ignore stale renders
+  const renderTaskRef = useRef<any>(null)
+  const paintIdRef = useRef(0)
+
   // structural padding (wrapper p-1 + textarea px-2/py-1 + textarea border)
   const [structPadPx, setStructPadPx] = useState({ left: 12, top: 8 })
 
@@ -177,34 +181,69 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
   // ------------ Render page into canvas ------------
   const renderPage = useCallback(async () => {
     if (!srcItem || !canvasRef.current || !wrapperRef.current) return
+
+    // bump paint token so older renders know they’re stale
+    const myPaintId = ++paintIdRef.current
+
     const canvas = canvasRef.current
     const wrapperW = Math.max(320, wrapperRef.current.clientWidth)
 
+    // load doc + page
     const loadingTask = pdfjs.getDocument({ data: srcItem.bytes.slice(0) })
     const doc = await loadingTask.promise
     const page = await doc.getPage(pageIndex + 1)
 
+    // compute fit-width CSS size
     const base = page.getViewport({ scale: 1 })
     const fitWidthScale = wrapperW / base.width
     const cssW = Math.round(base.width * fitWidthScale)
     const cssH = Math.round(base.height * fitWidthScale)
     setBaseCss({ w: cssW, h: cssH })
 
+    // device-pixel rendering scale
     const dpr = Math.max(1, window.devicePixelRatio || 1)
     const renderScale = fitWidthScale * zoom * dpr
     const viewport = page.getViewport({ scale: renderScale })
 
+    // size canvas (buffer) and CSS size
     canvas.width = Math.ceil(viewport.width)
     canvas.height = Math.ceil(viewport.height)
     canvas.style.width = `${Math.round(viewport.width / dpr)}px`
     canvas.style.height = `${Math.round(viewport.height / dpr)}px`
 
     const ctx = canvas.getContext("2d")!
-    await page.render({ canvas, canvasContext: ctx, viewport }).promise
+    let task
 
-    if (overlayRef.current) {
-      overlayRef.current.style.width = canvas.style.width
-      overlayRef.current.style.height = canvas.style.height
+    try {
+      // cancel any in-flight render on this canvas before starting a new one
+      try {
+        renderTaskRef.current?.cancel?.()
+      } catch {
+        /* empty */
+      }
+
+      task = page.render({ canvas, canvasContext: ctx, viewport })
+      renderTaskRef.current = task
+      await task.promise
+      // if another render started since we kicked off, ignore this completion
+      if (paintIdRef.current !== myPaintId) return
+
+      if (overlayRef.current) {
+        overlayRef.current.style.width = canvas.style.width
+        overlayRef.current.style.height = canvas.style.height
+      }
+    } catch (err: any) {
+      // ignore cancellations; rethrow real errors
+      if (err?.name !== "RenderingCancelledException") throw err
+    } finally {
+      // clear the ref if we’re the last render
+      if (renderTaskRef.current === task) renderTaskRef.current = null
+      // optional: free page operator list memory
+      try {
+        page.cleanup?.()
+      } catch {
+        /* empty */
+      }
     }
   }, [srcItem, pageIndex, zoom])
 
@@ -217,6 +256,16 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     if (wrapperRef.current) ro.observe(wrapperRef.current)
     return () => ro.disconnect()
   }, [renderPage])
+
+  useEffect(() => {
+    return () => {
+      try {
+        renderTaskRef.current?.cancel?.()
+      } catch {
+        /* empty */
+      }
+    }
+  }, [])
 
   // ------------ Overlay interaction ------------
   const cssToPdf = useCallback(
