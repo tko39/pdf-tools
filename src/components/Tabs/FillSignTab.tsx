@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { type AnyAnno, type StampAnno, type TextAnno, renderAnnotationsToPdf } from "@/lib/fillSignHelpers"
-import { renderAllPageThumbs } from "@/lib/helpers" // for quick page count (we won't show thumbs)
+import { renderAllPageThumbs } from "@/lib/helpers"
 import type { PdfItem } from "@/lib/types"
 import * as pdfjs from "pdfjs-dist"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
@@ -10,8 +10,6 @@ import { Input } from "../ui/input"
 import { Label } from "../ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
 import { TabsContent } from "../ui/tabs"
-
-// If you don't have Textarea installed yet:  npx shadcn@latest add textarea
 import { Textarea } from "../ui/textarea"
 
 export const TAB_NAME_FILL_SIGN = "fillSign"
@@ -27,19 +25,27 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
   const [pageCount, setPageCount] = useState(1)
 
   // PDF page size in points (used to map <-> screen)
-  const [pageWPt, setPageWPt] = useState(612) // default A4-ish
+  const [pageWPt, setPageWPt] = useState(612)
   const [pageHPt, setPageHPt] = useState(792)
 
   // ------------ Canvas render & zoom ------------
   const wrapperRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
+
+  // hidden measurers (MUST mirror the same classes used by the visible editor box)
   const wrapMeasureRef = useRef<HTMLDivElement | null>(null)
   const textMeasureRef = useRef<HTMLTextAreaElement | null>(null)
-  const [combinedPadCss, setCombinedPadCss] = useState({ left: 12, top: 8 })
 
-  const [zoom, setZoom] = useState(1) // CSS zoom factor on top of "fit width"
-  const [baseCss, setBaseCss] = useState<{ w: number; h: number }>({ w: 0, h: 0 }) // fit-to-width size, in CSS px
+  // structural padding (wrapper p-1 + textarea px-2/py-1 + textarea border)
+  const [structPadPx, setStructPadPx] = useState({ left: 12, top: 8 })
+
+  // font metrics (ratios of ascent/descent) + line-height ratio
+  const [fontRatios, setFontRatios] = useState({ asc: 0.8, desc: 0.2 })
+  const [lineHeightRatio, setLineHeightRatio] = useState(1.2)
+
+  const [zoom, setZoom] = useState(1) // extra CSS zoom
+  const [baseCss, setBaseCss] = useState<{ w: number; h: number }>({ w: 0, h: 0 }) // fit-to-width size (CSS px)
   const cssPixelsPerPoint = useMemo(() => (baseCss.w ? baseCss.w / pageWPt : 1) * zoom, [baseCss.w, pageWPt, zoom])
 
   // ------------ Tools & annotations ------------
@@ -65,11 +71,9 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     if (!srcItem) return
     try {
       setError(null)
-      // use pdfjs just to get numPages quickly / consistently; also sets up page pixels later
-      const thumbs = await renderAllPageThumbs(srcItem.bytes.slice(0), 8) // tiny thumbs; we only need count
+      const thumbs = await renderAllPageThumbs(srcItem.bytes.slice(0), 8) // tiny thumbs; only to get num pages
       setPageCount(thumbs.length)
 
-      // get page size in points using pdf-lib (reliable for mapping)
       const { PDFDocument } = await import("pdf-lib")
       const doc = await PDFDocument.load(srcItem.bytes)
       const pg = doc.getPage(pageIndex)
@@ -89,7 +93,8 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     }
   }, [items, sourceId, pageIndex, loadPageMeta])
 
-  const measurePadding = useCallback(() => {
+  // ------------ Measure structure + font metrics (reliable) ------------
+  const measureStructure = useCallback(() => {
     const wrap = wrapMeasureRef.current
     const ta = textMeasureRef.current
     if (!wrap || !ta) return
@@ -101,38 +106,73 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
       (parseFloat(ws.paddingLeft) || 0) + (parseFloat(ts.paddingLeft) || 0) + (parseFloat(ts.borderLeftWidth) || 0)
 
     const top =
-      (parseFloat(ws.paddingTop) || 0) +
-      (parseFloat(ts.paddingTop) || 0) +
-      (parseFloat(ts.borderTopWidth) || 0) +
-      (parseFloat(ts.lineHeight) || 0) / 4 // line height fudge
+      (parseFloat(ws.paddingTop) || 0) + (parseFloat(ts.paddingTop) || 0) + (parseFloat(ts.borderTopWidth) || 0)
 
-    console.log("measured pad", { left, top })
-    setCombinedPadCss({ left, top })
+    setStructPadPx({ left, top })
   }, [])
 
-  // callback refs: measure immediately when either attaches
+  const measureFont = useCallback(() => {
+    const ta = textMeasureRef.current
+    if (!ta) return
+    const cs = getComputedStyle(ta)
+
+    // line-height ratio (lineHeight / fontSize)
+    const fs = parseFloat(cs.fontSize) || 16
+    const lhVal = cs.lineHeight
+    const lhPx = lhVal === "normal" ? 1.2 * fs : parseFloat(lhVal) || 1.2 * fs
+    setLineHeightRatio(lhPx / fs)
+
+    // ascent/descent ratios using canvas
+    const testPx = 100
+    const font = `${cs.fontStyle} ${cs.fontVariant} ${cs.fontWeight} ${testPx}px ${cs.fontFamily}`
+    const c = document.createElement("canvas")
+    const ctx = c.getContext("2d")!
+    ctx.font = font
+    const m = ctx.measureText("Mg")
+    const asc = (m.actualBoundingBoxAscent ?? testPx * 0.8) / testPx
+    const desc = (m.actualBoundingBoxDescent ?? testPx * 0.2) / testPx
+    setFontRatios({ asc, desc })
+  }, [])
+
+  // callback refs: measure as soon as elements mount
   const setWrapRef = useCallback(
     (el: HTMLDivElement | null) => {
       wrapMeasureRef.current = el
-      if (el && textMeasureRef.current) measurePadding()
+      if (el && textMeasureRef.current) {
+        measureStructure()
+        measureFont()
+      }
     },
-    [measurePadding],
+    [measureStructure, measureFont],
   )
 
   const setTextRef = useCallback(
     (el: HTMLTextAreaElement | null) => {
       textMeasureRef.current = el
-      if (el && wrapMeasureRef.current) measurePadding()
+      if (el && wrapMeasureRef.current) {
+        measureStructure()
+        measureFont()
+        ;(document as any).fonts?.ready?.then(() => {
+          requestAnimationFrame(() => {
+            measureStructure()
+            measureFont()
+          })
+        })
+      }
     },
-    [measurePadding],
+    [measureStructure, measureFont],
   )
 
-  // layout effect: run once after commit, and once more next frame
   useLayoutEffect(() => {
-    measurePadding()
-    const id = requestAnimationFrame(measurePadding)
+    // run after commit, then once more next frame
+    measureStructure()
+    measureFont()
+    const id = requestAnimationFrame(() => {
+      measureStructure()
+      measureFont()
+    })
     return () => cancelAnimationFrame(id)
-  }, [measurePadding])
+  }, [measureStructure, measureFont])
 
   // ------------ Render page into canvas ------------
   const renderPage = useCallback(async () => {
@@ -140,8 +180,6 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     const canvas = canvasRef.current
     const wrapperW = Math.max(320, wrapperRef.current.clientWidth)
 
-    // pdfjs render at fit-width * zoom * dpr
-    // 1) get page viewport @ scale=1 for base width
     const loadingTask = pdfjs.getDocument({ data: srcItem.bytes.slice(0) })
     const doc = await loadingTask.promise
     const page = await doc.getPage(pageIndex + 1)
@@ -154,8 +192,8 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
 
     const dpr = Math.max(1, window.devicePixelRatio || 1)
     const renderScale = fitWidthScale * zoom * dpr
-
     const viewport = page.getViewport({ scale: renderScale })
+
     canvas.width = Math.ceil(viewport.width)
     canvas.height = Math.ceil(viewport.height)
     canvas.style.width = `${Math.round(viewport.width / dpr)}px`
@@ -163,14 +201,13 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
 
     const ctx = canvas.getContext("2d")!
     await page.render({ canvas, canvasContext: ctx, viewport }).promise
-    // size overlay to CSS size
+
     if (overlayRef.current) {
       overlayRef.current.style.width = canvas.style.width
       overlayRef.current.style.height = canvas.style.height
     }
   }, [srcItem, pageIndex, zoom])
 
-  // re-render on source/page/zoom or container resize
   useEffect(() => {
     void renderPage()
   }, [renderPage])
@@ -182,7 +219,6 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
   }, [renderPage])
 
   // ------------ Overlay interaction ------------
-  // Convert CSS px (overlay coords) -> PDF points
   const cssToPdf = useCallback(
     (xCss: number, yCss: number) => {
       const xPt = xCss / cssPixelsPerPoint
@@ -192,7 +228,6 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     [cssPixelsPerPoint, pageHPt],
   )
 
-  // Convert PDF points -> CSS px
   const pdfToCss = useCallback(
     (xPt: number, yPt: number) => {
       const xCss = xPt * cssPixelsPerPoint
@@ -204,7 +239,6 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
 
   // Place new objects by clicking empty space
   const onOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Ignore clicks that started on an annotation (we’ll stopPropagation on its handlers)
     if (tool === "select") return
     if (!overlayRef.current) return
 
@@ -212,7 +246,6 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     const xCss = e.clientX - rect.left
     const yCss = e.clientY - rect.top
     const { xPt, yPt } = cssToPdf(xCss, yCss)
-    console.log("click at", { xCss, yCss, xPt, yPt })
 
     if (tool === "text") {
       const id = crypto.randomUUID()
@@ -248,7 +281,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     }
   }
 
-  // Dragging annotations
+  // Dragging annotations (custom)
   const dragState = useRef<{
     id: string | null
     startX: number
@@ -283,17 +316,14 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     const dxCss = xCss - st.startX
     const dyCss = yCss - st.startY
     const dxPt = dxCss / cssPixelsPerPoint
-    const dyPt = -dyCss / cssPixelsPerPoint // invert Y
-
+    const dyPt = -dyCss / cssPixelsPerPoint
     setAnnos((prev) =>
       prev.map((a) => (a.id === st.id ? { ...a, xPt: st.startPt!.x + dxPt, yPt: st.startPt!.y + dyPt } : a)),
     )
   }
 
   const onAnnoPointerUp = (e: React.PointerEvent) => {
-    if (dragState.current.id) {
-      ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-    }
+    if (dragState.current.id) (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
     dragState.current = { id: null, startX: 0, startY: 0, startPt: null }
   }
 
@@ -305,10 +335,9 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
 
   // start drag only when clicking the border/handle (not the textarea)
   const onTextBorderPointerDown = (id: string, e: React.PointerEvent) => {
-    // edit mode: allow caret inside textarea (child), so only start drag if the border itself was hit
     if (e.target !== e.currentTarget) return
-    if (tool !== "select") return // only draggable in Select tool
-    onAnnoPointerDown(id, e) // reuse your existing generic drag starter
+    if (tool !== "select") return
+    onAnnoPointerDown(id, e)
   }
 
   // ------------ Signature pad ------------
@@ -348,21 +377,30 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     setSigDataUrl(URL.createObjectURL(blob))
   }
 
-  // ------------ Export ------------
+  // ------------ Export (adjust per-annotation for exact baseline) ------------
   const onDownload = useCallback(async () => {
     try {
       setError(null)
       if (!srcItem) return
 
-      // CSS px -> PDF points using your current mapping
-      const padXPt = combinedPadCss.left / cssPixelsPerPoint
-      const padYPt = combinedPadCss.top / cssPixelsPerPoint
+      // convert struct padding from CSS px -> PDF pt
+      const padXPt = structPadPx.left / cssPixelsPerPoint
 
-      const out = await renderAnnotationsToPdf(srcItem.bytes, pageIndex, annos, {
-        textPadXPt: padXPt,
-        textPadYPt: padYPt,
+      // build adjusted annos: text gets baseline offset derived from font metrics & current size
+      const adjusted: AnyAnno[] = annos.map((a) => {
+        if (a.type !== "text") return a
+        const fontPx = a.sizePt * cssPixelsPerPoint
+        const ascPx = fontRatios.asc * fontPx
+        const descPx = fontRatios.desc * fontPx
+        const linePx = lineHeightRatio * fontPx
+        const baselineWithin = (linePx - (ascPx + descPx)) / 2 + ascPx // top->baseline
+        const padYPt = (structPadPx.top + baselineWithin) / cssPixelsPerPoint
+
+        // This is still buggy, working on it... Added `/2` to reduce impact for now
+        return { ...a, xPt: a.xPt + padXPt, yPt: a.yPt + padYPt / 2 } as TextAnno
       })
 
+      const out = await renderAnnotationsToPdf(srcItem.bytes, pageIndex, adjusted)
       const url = URL.createObjectURL(new Blob([out], { type: "application/pdf" }))
       const a = document.createElement("a")
       a.href = url
@@ -372,7 +410,19 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     } catch (e: any) {
       setError(e?.message ?? "Failed to save PDF")
     }
-  }, [setError, srcItem, combinedPadCss.left, combinedPadCss.top, cssPixelsPerPoint, pageIndex, annos, fileName])
+  }, [
+    setError,
+    srcItem,
+    annos,
+    pageIndex,
+    fileName,
+    structPadPx.left,
+    structPadPx.top,
+    cssPixelsPerPoint,
+    fontRatios.asc,
+    fontRatios.desc,
+    lineHeightRatio,
+  ])
 
   // ------------ UI ------------
   return (
@@ -562,7 +612,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
             </div>
             {sigDataUrl && (
               <div className="text-xs text-gray-500 mt-1">
-                Signature ready. Switch to the “Signature” tool and click the page to place.
+                Signature ready. Switch to “Signature” tool and click the page to place.
               </div>
             )}
           </div>
@@ -578,7 +628,6 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
                 ref={overlayRef}
                 className="absolute left-0 top-0"
                 onClick={onOverlayClick}
-                // prevent selecting images/text while dragging children
                 style={{ userSelect: "none" }}
               >
                 {annos.map((a) => {
@@ -599,7 +648,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
                         {/* DRAG BORDER / HANDLE */}
                         <div
                           className={[
-                            "relative inline-block rounded-md p-1 group", // <-- relative + group
+                            "relative inline-block rounded-md p-1 group",
                             activeId === a.id ? "ring-2 ring-blue-300" : "ring-1 ring-transparent",
                             tool === "select" ? "cursor-move" : "cursor-text",
                           ].join(" ")}
@@ -618,12 +667,11 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
                               lineHeight: 1.2,
                               color: a.colorHex,
                             }}
-                            onPointerDownCapture={(e) => e.stopPropagation()} // allow edit, block drag
+                            onPointerDownCapture={(e) => e.stopPropagation()}
                             onMouseDownCapture={(e) => e.stopPropagation()}
                             onTouchStartCapture={(e) => e.stopPropagation()}
                             ref={setTextRef}
                           />
-
                           {/* REMOVE BUTTON */}
                           <Button
                             variant="destructive"
@@ -649,7 +697,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
                     return (
                       <div
                         key={a.id}
-                        className={`absolute group cursor-move`}
+                        className="absolute group cursor-move"
                         style={{ left: xCss, top: yCss, width: wCss, transform: "translateY(-100%)" }}
                         onPointerDown={(e) => onAnnoPointerDown(a.id, e)}
                         onPointerMove={onAnnoPointerMove}
@@ -692,9 +740,23 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
               </div>
             </div>
           </div>
+
           <div className="text-xs text-gray-500 mt-2">
             Tip: choose a tool, click the page to add; drag to move; use Delete selected to remove.
           </div>
+        </div>
+      </div>
+
+      {/* HIDDEN MEASURERS (must mirror editor classes exactly) */}
+      <div className="absolute -z-50 opacity-0 pointer-events-none">
+        <div ref={setWrapRef} className="inline-block rounded-md p-1">
+          <Textarea
+            ref={setTextRef}
+            className="min-w-[120px] min-h-[28px] bg-white/80 border rounded-md px-2 py-1 resize-none shadow-sm"
+            readOnly
+            aria-hidden
+            style={{ lineHeight: 1.2, fontFamily: "Helvetica, Arial, sans-serif" }}
+          />
         </div>
       </div>
     </TabsContent>

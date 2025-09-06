@@ -43,12 +43,7 @@ export function hexToRgb01(hex: string) {
 }
 
 /** Draw annotations onto the given PDF bytes and return new bytes */
-export async function renderAnnotationsToPdf(
-  srcBytes: Uint8Array,
-  pageIndex: number,
-  annos: AnyAnno[],
-  opts?: { textPadXPt?: number; textPadYPt?: number },
-) {
+export async function renderAnnotationsToPdf(srcBytes: Uint8Array, pageIndex: number, annos: AnyAnno[]) {
   const pdf = await PDFDocument.load(srcBytes)
   const page = pdf.getPage(pageIndex)
   const helv = await pdf.embedFont(StandardFonts.Helvetica)
@@ -64,15 +59,12 @@ export async function renderAnnotationsToPdf(
     page.drawImage(png, { x: a.xPt, y: a.yPt, width: w, height: h })
   }
 
-  const padX = Math.ceil(opts?.textPadXPt ?? 0)
-  const padY = Math.ceil(opts?.textPadYPt ?? 0)
-
   // then text
   for (const a of annos) {
     if (a.type !== "text") continue
     page.drawText(a.text ?? "", {
-      x: a.xPt + 0 * 8 + padX,
-      y: a.yPt + 0 * 4 + padY,
+      x: a.xPt,
+      y: a.yPt,
       size: a.sizePt,
       font: helv,
       color: hexToRgb01(a.colorHex || "#111111"),
