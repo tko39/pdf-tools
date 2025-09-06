@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "./components/ui/alert-dialog"
+import { FillSignTab, TAB_NAME_FILL_SIGN } from "./components/Tabs/FillSignTab"
 
 GlobalWorkerOptions.workerPort = new PdfWorker()
 
@@ -111,6 +112,7 @@ export default function App() {
               <TabsTrigger value={TAB_NAME_SPLIT}>Split (ranges)</TabsTrigger>
               <TabsTrigger value={TAB_NAME_REORDER}>Reorder</TabsTrigger>
               <TabsTrigger value={TAB_NAME_EXTRACT}>Extract Text</TabsTrigger>
+              <TabsTrigger value={TAB_NAME_FILL_SIGN}>Fill & Sign</TabsTrigger>
             </TabsList>
 
             <div className="flex items-center gap-3">
@@ -151,6 +153,7 @@ export default function App() {
           <SplitTab items={items} setError={setError} />
           <ReorderTab items={items} setError={setError} />
           <ExtractTab items={items} setError={setError} />
+          <FillSignTab items={items} setError={setError} />
         </Tabs>
 
         {error && <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
