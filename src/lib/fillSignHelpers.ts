@@ -64,8 +64,8 @@ export async function renderAnnotationsToPdf(
     page.drawImage(png, { x: a.xPt, y: a.yPt, width: w, height: h })
   }
 
-  const padX = opts?.textPadXPt ?? 0
-  const padY = opts?.textPadYPt ?? 0
+  const padX = Math.ceil(opts?.textPadXPt ?? 0)
+  const padY = Math.ceil(opts?.textPadYPt ?? 0)
 
   // then text
   for (const a of annos) {

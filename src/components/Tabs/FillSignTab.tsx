@@ -1,10 +1,9 @@
-// src/components/Tabs/FillSignTab.tsx
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { type AnyAnno, type StampAnno, type TextAnno, renderAnnotationsToPdf } from "@/lib/fillSignHelpers"
 import { renderAllPageThumbs } from "@/lib/helpers" // for quick page count (we won't show thumbs)
 import type { PdfItem } from "@/lib/types"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as pdfjs from "pdfjs-dist"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { Button } from "../ui/button"
 import { Input } from "../ui/input"
@@ -35,8 +34,9 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
   const wrapperRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
-  const measureRef = useRef<HTMLTextAreaElement | null>(null)
-  const [padPx, setPadPx] = useState({ left: 8, top: 4 })
+  const wrapMeasureRef = useRef<HTMLDivElement | null>(null)
+  const textMeasureRef = useRef<HTMLTextAreaElement | null>(null)
+  const [combinedPadCss, setCombinedPadCss] = useState({ left: 12, top: 8 })
 
   const [zoom, setZoom] = useState(1) // CSS zoom factor on top of "fit width"
   const [baseCss, setBaseCss] = useState<{ w: number; h: number }>({ w: 0, h: 0 }) // fit-to-width size, in CSS px
@@ -89,14 +89,50 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     }
   }, [items, sourceId, pageIndex, loadPageMeta])
 
-  useEffect(() => {
-    if (!measureRef.current) return
-    const cs = getComputedStyle(measureRef.current)
-    setPadPx({
-      left: parseFloat(cs.paddingLeft) || 0,
-      top: parseFloat(cs.paddingTop) || 0,
-    })
+  const measurePadding = useCallback(() => {
+    const wrap = wrapMeasureRef.current
+    const ta = textMeasureRef.current
+    if (!wrap || !ta) return
+
+    const ws = getComputedStyle(wrap)
+    const ts = getComputedStyle(ta)
+
+    const left =
+      (parseFloat(ws.paddingLeft) || 0) + (parseFloat(ts.paddingLeft) || 0) + (parseFloat(ts.borderLeftWidth) || 0)
+
+    const top =
+      (parseFloat(ws.paddingTop) || 0) +
+      (parseFloat(ts.paddingTop) || 0) +
+      (parseFloat(ts.borderTopWidth) || 0) +
+      (parseFloat(ts.lineHeight) || 0) / 4 // line height fudge
+
+    console.log("measured pad", { left, top })
+    setCombinedPadCss({ left, top })
   }, [])
+
+  // callback refs: measure immediately when either attaches
+  const setWrapRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      wrapMeasureRef.current = el
+      if (el && textMeasureRef.current) measurePadding()
+    },
+    [measurePadding],
+  )
+
+  const setTextRef = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      textMeasureRef.current = el
+      if (el && wrapMeasureRef.current) measurePadding()
+    },
+    [measurePadding],
+  )
+
+  // layout effect: run once after commit, and once more next frame
+  useLayoutEffect(() => {
+    measurePadding()
+    const id = requestAnimationFrame(measurePadding)
+    return () => cancelAnimationFrame(id)
+  }, [measurePadding])
 
   // ------------ Render page into canvas ------------
   const renderPage = useCallback(async () => {
@@ -193,6 +229,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
         } as TextAnno,
       ])
       setActiveId(id)
+      setTool("select")
     } else if (tool === "stamp" && sigDataUrl) {
       const id = crypto.randomUUID()
       setAnnos((prev) => [
@@ -207,6 +244,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
         } as StampAnno,
       ])
       setActiveId(id)
+      setTool("select")
     }
   }
 
@@ -265,6 +303,14 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     setActiveId(null)
   }
 
+  // start drag only when clicking the border/handle (not the textarea)
+  const onTextBorderPointerDown = (id: string, e: React.PointerEvent) => {
+    // edit mode: allow caret inside textarea (child), so only start drag if the border itself was hit
+    if (e.target !== e.currentTarget) return
+    if (tool !== "select") return // only draggable in Select tool
+    onAnnoPointerDown(id, e) // reuse your existing generic drag starter
+  }
+
   // ------------ Signature pad ------------
   const startSig = (e: React.PointerEvent) => {
     if (!sigCanvasRef.current) return
@@ -309,8 +355,8 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
       if (!srcItem) return
 
       // CSS px -> PDF points using your current mapping
-      const padXPt = padPx.left / cssPixelsPerPoint
-      const padYPt = padPx.top / cssPixelsPerPoint
+      const padXPt = combinedPadCss.left / cssPixelsPerPoint
+      const padYPt = combinedPadCss.top / cssPixelsPerPoint
 
       const out = await renderAnnotationsToPdf(srcItem.bytes, pageIndex, annos, {
         textPadXPt: padXPt,
@@ -326,7 +372,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     } catch (e: any) {
       setError(e?.message ?? "Failed to save PDF")
     }
-  }, [srcItem, pageIndex, annos, fileName, setError, padPx.left, padPx.top, cssPixelsPerPoint])
+  }, [setError, srcItem, combinedPadCss.left, combinedPadCss.top, cssPixelsPerPoint, pageIndex, annos, fileName])
 
   // ------------ UI ------------
   return (
@@ -541,9 +587,8 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
                     return (
                       <div
                         key={a.id}
-                        className={`absolute group`}
-                        style={{ left: xCss, top: yCss, transform: "translateY(-100%)" }} // baseline -> top-left
-                        onPointerDown={(e) => onAnnoPointerDown(a.id, e)}
+                        className="absolute"
+                        style={{ left: xCss, top: yCss, transform: "translateY(-100%)" }}
                         onPointerMove={onAnnoPointerMove}
                         onPointerUp={onAnnoPointerUp}
                         onClick={(e) => {
@@ -551,27 +596,39 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
                           setActiveId(a.id)
                         }}
                       >
-                        <Textarea
-                          ref={measureRef}
-                          value={a.text}
-                          onChange={(e) =>
-                            setAnnos((prev) => prev.map((p) => (p.id === a.id ? { ...p, text: e.target.value } : p)))
-                          }
-                          className={`min-w-[120px] min-h-[28px] bg-white/80 border rounded-md px-2 py-1 resize-none shadow-sm ${
-                            activeId === a.id ? "ring-2 ring-blue-300" : ""
-                          }`}
-                          style={{
-                            fontSize: `${a.sizePt * cssPixelsPerPoint}px`,
-                            lineHeight: 1.2,
-                            color: a.colorHex,
-                          }}
-                          onPointerDown={(e) => e.stopPropagation()}
-                        />
-                        <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition">
+                        {/* DRAG BORDER / HANDLE */}
+                        <div
+                          className={[
+                            "relative inline-block rounded-md p-1 group", // <-- relative + group
+                            activeId === a.id ? "ring-2 ring-blue-300" : "ring-1 ring-transparent",
+                            tool === "select" ? "cursor-move" : "cursor-text",
+                          ].join(" ")}
+                          onPointerDown={(e) => onTextBorderPointerDown(a.id, e)}
+                          ref={setWrapRef}
+                        >
+                          {/* EDITABLE TEXT */}
+                          <Textarea
+                            value={a.text}
+                            onChange={(e) =>
+                              setAnnos((prev) => prev.map((p) => (p.id === a.id ? { ...p, text: e.target.value } : p)))
+                            }
+                            className="min-w-[120px] min-h-[28px] bg-white/80 border rounded-md px-2 py-1 resize-none shadow-sm"
+                            style={{
+                              fontSize: `${a.sizePt * cssPixelsPerPoint}px`,
+                              lineHeight: 1.2,
+                              color: a.colorHex,
+                            }}
+                            onPointerDownCapture={(e) => e.stopPropagation()} // allow edit, block drag
+                            onMouseDownCapture={(e) => e.stopPropagation()}
+                            onTouchStartCapture={(e) => e.stopPropagation()}
+                            ref={setTextRef}
+                          />
+
+                          {/* REMOVE BUTTON */}
                           <Button
                             variant="destructive"
                             size="icon"
-                            className="h-6 w-6 rounded-full"
+                            className="absolute -top-2 -right-2 z-10 h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition"
                             onClick={(e) => {
                               e.stopPropagation()
                               setAnnos((prev) => prev.filter((p) => p.id !== a.id))
@@ -592,7 +649,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
                     return (
                       <div
                         key={a.id}
-                        className={`absolute group`}
+                        className={`absolute group cursor-move`}
                         style={{ left: xCss, top: yCss, width: wCss, transform: "translateY(-100%)" }}
                         onPointerDown={(e) => onAnnoPointerDown(a.id, e)}
                         onPointerMove={onAnnoPointerMove}
