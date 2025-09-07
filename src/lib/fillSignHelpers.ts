@@ -1,4 +1,5 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
+import { PDFDocument, rgb } from "pdf-lib"
+import fontkit from "@pdf-lib/fontkit"
 
 export type TextAnno = {
   id: string
@@ -45,10 +46,13 @@ export function hexToRgb01(hex: string) {
 /** Draw annotations onto the given PDF bytes and return new bytes */
 export async function renderAnnotationsToPdf(srcBytes: Uint8Array, pageIndex: number, annos: AnyAnno[]) {
   const pdf = await PDFDocument.load(srcBytes)
-  const page = pdf.getPage(pageIndex)
-  const helv = await pdf.embedFont(StandardFonts.Helvetica)
+  pdf.registerFontkit(fontkit)
 
-  // stamp images first (so text can overlay if desired)
+  const page = pdf.getPage(pageIndex)
+
+  const font = await pdf.embedFont(await loadFontBytes(FONT_URL_HEBREW), { subset: true })
+  // const font = await pdf.embedFont(StandardFonts.Helvetica)
+
   for (const a of annos) {
     if (a.type !== "stamp") continue
     const pngBytes = await dataUrlToUint8(a.pngDataUrl)
@@ -59,18 +63,30 @@ export async function renderAnnotationsToPdf(srcBytes: Uint8Array, pageIndex: nu
     page.drawImage(png, { x: a.xPt, y: a.yPt, width: w, height: h })
   }
 
-  // then text
   for (const a of annos) {
     if (a.type !== "text") continue
     page.drawText(a.text ?? "", {
       x: a.xPt,
       y: a.yPt,
       size: a.sizePt,
-      font: helv,
+      font: font,
       color: hexToRgb01(a.colorHex || "#111111"),
     })
   }
 
-  const out = await pdf.save()
-  return new Uint8Array(out)
+  return new Uint8Array(await pdf.save())
+}
+
+async function loadFontBytes(url: string): Promise<Uint8Array> {
+  const res = await fetch(url)
+  return new Uint8Array(await res.arrayBuffer())
+}
+
+// Preload both fonts (Latin + Hebrew)
+const FONT_URL_HEBREW = "fonts/NotoSansHebrew-Regular.ttf"
+
+const HEBREW_RE = /[\u0590-\u05FF\uFB1D-\uFB4F]/
+
+export function containsHebrew(s: string) {
+  return HEBREW_RE.test(s)
 }

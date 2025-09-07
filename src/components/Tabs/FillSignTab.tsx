@@ -58,7 +58,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
   const [activeId, setActiveId] = useState<string | null>(null)
 
   // New text defaults
-  const [textColor, setTextColor] = useState("#111111")
+  const [textColor, setTextColor] = useState("#1111FF")
   const [textSizePt, setTextSizePt] = useState(14)
 
   // Signature state
@@ -395,12 +395,14 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     const ctx = sigCanvasRef.current.getContext("2d")!
     ctx.lineWidth = 2
     ctx.lineCap = "round"
-    ctx.strokeStyle = "#111"
+    ctx.strokeStyle = textColor
     ctx.beginPath()
     const r = sigCanvasRef.current.getBoundingClientRect()
+    console.log(r)
     ctx.moveTo(e.clientX - r.left, e.clientY - r.top)
     setSigIsDrawing(true)
   }
+
   const moveSig = (e: React.PointerEvent) => {
     if (!sigIsDrawing || !sigCanvasRef.current) return
     const ctx = sigCanvasRef.current.getContext("2d")!
@@ -408,6 +410,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     ctx.lineTo(e.clientX - r.left, e.clientY - r.top)
     ctx.stroke()
   }
+
   const endSig = () => setSigIsDrawing(false)
   const clearSig = () => {
     if (!sigCanvasRef.current) return
@@ -630,7 +633,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
           <div className="rounded-xl border bg-white p-3">
             <canvas
               ref={sigCanvasRef}
-              width={400}
+              width={290}
               height={140}
               className="w-full h-[140px] touch-none bg-white"
               onPointerDown={startSig}
