@@ -29,7 +29,6 @@ export const MergeTab = ({
 
   const sensors = useSensors(useSensor(PointerSensor))
   const ids = useMemo(() => items.map((i) => i.id), [items])
-  console.log(items)
 
   const onMerge = useCallback(async () => {
     setError(null)
@@ -81,7 +80,9 @@ export const MergeTab = ({
           />
         </div>
         <Button className="rounded-2xl" onClick={onMerge} disabled={merging || items.length === 0}>
-          {merging ? "Merging…" : `Merge ${items.length || ""} ${items.length ? (items.length > 1 ? "PDFs" : "PDF") : ""}`}
+          {merging
+            ? "Merging..."
+            : `Merge ${items.length || ""} ${items.length ? (items.length > 1 ? "PDFs" : "PDF") : ""}`}
         </Button>
       </div>
 
