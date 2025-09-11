@@ -308,6 +308,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
           yPt,
           sizePt: textSizePt,
           colorHex: textColor,
+          pageIndex,
         } as TextAnno,
       ])
       setActiveId(id)
@@ -323,6 +324,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
           xPt,
           yPt,
           widthPt: sigWidthPt,
+          pageIndex,
         } as StampAnno,
       ])
       setActiveId(id)
@@ -452,7 +454,7 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
         return { ...a, xPt: a.xPt + padXPt, yPt: a.yPt + padYPt / 2 } as TextAnno
       })
 
-      const out = await renderAnnotationsToPdf(srcItem.bytes, pageIndex, adjusted)
+      const out = await renderAnnotationsToPdf(srcItem.bytes, adjusted)
       const url = URL.createObjectURL(new Blob([out], { type: "application/pdf" }))
       const a = document.createElement("a")
       a.href = url
@@ -466,7 +468,6 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     setError,
     srcItem,
     annos,
-    pageIndex,
     fileName,
     structPadPx.left,
     structPadPx.top,
@@ -534,7 +535,6 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
               value={pageIndex + 1}
               onChange={(e) => {
                 setPageIndex(Math.min(Math.max(1, Number(e.target.value)), pageCount) - 1)
-                setAnnos([])
               }}
               className="w-28"
             />
@@ -699,113 +699,117 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
                 onClick={onOverlayClick}
                 style={{ userSelect: "none" }}
               >
-                {annos.map((a) => {
-                  if (a.type === "text") {
-                    const { xCss, yCss } = pdfToCss(a.xPt, a.yPt)
-                    return (
-                      <div
-                        key={a.id}
-                        className="absolute"
-                        style={{ left: xCss, top: yCss, transform: "translateY(-100%)" }}
-                        onPointerMove={onAnnoPointerMove}
-                        onPointerUp={onAnnoPointerUp}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setActiveId(a.id)
-                        }}
-                      >
-                        {/* DRAG BORDER / HANDLE */}
+                {annos
+                  .filter((a) => a.pageIndex === pageIndex)
+                  .map((a) => {
+                    if (a.type === "text") {
+                      const { xCss, yCss } = pdfToCss(a.xPt, a.yPt)
+                      return (
                         <div
-                          className={[
-                            "relative inline-block rounded-md p-1 group",
-                            activeId === a.id ? "ring-2 ring-blue-300" : "ring-1 ring-transparent",
-                            tool === "select" ? "cursor-move" : "cursor-text",
-                          ].join(" ")}
-                          onPointerDown={(e) => onTextBorderPointerDown(a.id, e)}
-                          ref={setWrapRef}
+                          key={a.id}
+                          className="absolute"
+                          style={{ left: xCss, top: yCss, transform: "translateY(-100%)" }}
+                          onPointerMove={onAnnoPointerMove}
+                          onPointerUp={onAnnoPointerUp}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setActiveId(a.id)
+                          }}
                         >
-                          {/* EDITABLE TEXT */}
-                          <Textarea
-                            value={a.text}
-                            onChange={(e) =>
-                              setAnnos((prev) => prev.map((p) => (p.id === a.id ? { ...p, text: e.target.value } : p)))
-                            }
-                            className="min-w-[120px] min-h-[28px] bg-white/80 border rounded-md px-2 py-1 resize-none shadow-sm"
-                            style={{
-                              fontSize: `${a.sizePt * cssPixelsPerPoint}px`,
-                              lineHeight: 1.2,
-                              color: a.colorHex,
-                            }}
-                            onPointerDownCapture={(e) => e.stopPropagation()}
-                            onMouseDownCapture={(e) => e.stopPropagation()}
-                            onTouchStartCapture={(e) => e.stopPropagation()}
-                            ref={setTextRef}
-                          />
-                          {/* REMOVE BUTTON */}
-                          <Button
-                            variant="destructive"
-                            size="icon"
-                            className="absolute -top-2 -right-2 z-10 h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setAnnos((prev) => prev.filter((p) => p.id !== a.id))
-                            }}
-                            onPointerDownCapture={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                            }}
+                          {/* DRAG BORDER / HANDLE */}
+                          <div
+                            className={[
+                              "relative inline-block rounded-md p-1 group",
+                              activeId === a.id ? "ring-2 ring-blue-300" : "ring-1 ring-transparent",
+                              tool === "select" ? "cursor-move" : "cursor-text",
+                            ].join(" ")}
+                            onPointerDown={(e) => onTextBorderPointerDown(a.id, e)}
+                            ref={setWrapRef}
                           >
-                            ×
-                          </Button>
+                            {/* EDITABLE TEXT */}
+                            <Textarea
+                              value={a.text}
+                              onChange={(e) =>
+                                setAnnos((prev) =>
+                                  prev.map((p) => (p.id === a.id ? { ...p, text: e.target.value } : p)),
+                                )
+                              }
+                              className="min-w-[120px] min-h-[28px] bg-white/80 border rounded-md px-2 py-1 resize-none shadow-sm"
+                              style={{
+                                fontSize: `${a.sizePt * cssPixelsPerPoint}px`,
+                                lineHeight: 1.2,
+                                color: a.colorHex,
+                              }}
+                              onPointerDownCapture={(e) => e.stopPropagation()}
+                              onMouseDownCapture={(e) => e.stopPropagation()}
+                              onTouchStartCapture={(e) => e.stopPropagation()}
+                              ref={setTextRef}
+                            />
+                            {/* REMOVE BUTTON */}
+                            <Button
+                              variant="destructive"
+                              size="icon"
+                              className="absolute -top-2 -right-2 z-10 h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setAnnos((prev) => prev.filter((p) => p.id !== a.id))
+                              }}
+                              onPointerDownCapture={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                              }}
+                            >
+                              ×
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    )
-                  } else {
-                    const { xCss, yCss } = pdfToCss(a.xPt, a.yPt)
-                    const wCss = a.widthPt * cssPixelsPerPoint
-                    return (
-                      <div
-                        key={a.id}
-                        className="absolute group cursor-move"
-                        style={{ left: xCss, top: yCss, width: wCss, transform: "translateY(-100%)" }}
-                        onPointerDown={(e) => onAnnoPointerDown(a.id, e)}
-                        onPointerMove={onAnnoPointerMove}
-                        onPointerUp={onAnnoPointerUp}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setActiveId(a.id)
-                        }}
-                      >
-                        {sigDataUrl && (
-                          <img
-                            src={a.pngDataUrl}
-                            alt="Signature"
-                            className={`block select-none ${activeId === a.id ? "ring-2 ring-blue-300" : ""}`}
-                            style={{ width: "100%", height: "auto", pointerEvents: "none" }}
-                            draggable={false}
-                          />
-                        )}
-                        <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition">
-                          <Button
-                            variant="destructive"
-                            size="icon"
-                            className="h-6 w-6 rounded-full"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setAnnos((prev) => prev.filter((p) => p.id !== a.id))
-                            }}
-                            onPointerDownCapture={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                            }}
-                          >
-                            ×
-                          </Button>
+                      )
+                    } else {
+                      const { xCss, yCss } = pdfToCss(a.xPt, a.yPt)
+                      const wCss = a.widthPt * cssPixelsPerPoint
+                      return (
+                        <div
+                          key={a.id}
+                          className="absolute group cursor-move"
+                          style={{ left: xCss, top: yCss, width: wCss, transform: "translateY(-100%)" }}
+                          onPointerDown={(e) => onAnnoPointerDown(a.id, e)}
+                          onPointerMove={onAnnoPointerMove}
+                          onPointerUp={onAnnoPointerUp}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setActiveId(a.id)
+                          }}
+                        >
+                          {a.pngDataUrl && (
+                            <img
+                              src={a.pngDataUrl}
+                              alt="Signature"
+                              className={`block select-none ${activeId === a.id ? "ring-2 ring-blue-300" : ""}`}
+                              style={{ width: "100%", height: "auto", pointerEvents: "none" }}
+                              draggable={false}
+                            />
+                          )}
+                          <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition">
+                            <Button
+                              variant="destructive"
+                              size="icon"
+                              className="h-6 w-6 rounded-full"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setAnnos((prev) => prev.filter((p) => p.id !== a.id))
+                              }}
+                              onPointerDownCapture={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                              }}
+                            >
+                              ×
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    )
-                  }
-                })}
+                      )
+                    }
+                  })}
               </div>
             </div>
           </div>

@@ -1,22 +1,24 @@
 import { PDFDocument, rgb } from "pdf-lib"
 import fontkit from "@pdf-lib/fontkit"
 
-export type TextAnno = {
+type BaseAnno = {
   id: string
+  pageIndex: number
+  type: "text" | "stamp"
+  xPt: number
+  yPt: number
+}
+
+export type TextAnno = BaseAnno & {
   type: "text"
   text: string
-  xPt: number
-  yPt: number // baseline Y in PDF points
   sizePt: number
   colorHex: string // "#RRGGBB"
 }
 
-export type StampAnno = {
-  id: string
+export type StampAnno = BaseAnno & {
   type: "stamp"
   pngDataUrl: string // cached dataURL of signature image
-  xPt: number
-  yPt: number // bottom-left in PDF points
   widthPt: number
 }
 
@@ -44,34 +46,39 @@ export function hexToRgb01(hex: string) {
 }
 
 /** Draw annotations onto the given PDF bytes and return new bytes */
-export async function renderAnnotationsToPdf(srcBytes: Uint8Array, pageIndex: number, annos: AnyAnno[]) {
+export async function renderAnnotationsToPdf(srcBytes: Uint8Array, annos: AnyAnno[]) {
   const pdf = await PDFDocument.load(srcBytes)
   pdf.registerFontkit(fontkit)
 
-  const page = pdf.getPage(pageIndex)
-
+  const pages = pdf.getPages()
   const font = await pdf.embedFont(await loadFontBytes(FONT_URL_HEBREW), { subset: true })
   // const font = await pdf.embedFont(StandardFonts.Helvetica)
 
-  for (const a of annos) {
-    if (a.type !== "stamp") continue
-    const pngBytes = await dataUrlToUint8(a.pngDataUrl)
-    const png = await pdf.embedPng(pngBytes)
-    const scale = a.widthPt / png.width
-    const w = png.width * scale
-    const h = png.height * scale
-    page.drawImage(png, { x: a.xPt, y: a.yPt, width: w, height: h })
-  }
+  for (const page of pages) {
+    const currentPageIndex = pages.indexOf(page)
+    const currentPageAnnos = annos.filter((a) => a.pageIndex === currentPageIndex)
+    if (currentPageAnnos.length === 0) continue
 
-  for (const a of annos) {
-    if (a.type !== "text") continue
-    page.drawText(a.text ?? "", {
-      x: a.xPt,
-      y: a.yPt,
-      size: a.sizePt,
-      font: font,
-      color: hexToRgb01(a.colorHex || "#111111"),
-    })
+    for (const a of currentPageAnnos) {
+      if (a.type !== "stamp") continue
+      const pngBytes = await dataUrlToUint8(a.pngDataUrl)
+      const png = await pdf.embedPng(pngBytes)
+      const scale = a.widthPt / png.width
+      const w = png.width * scale
+      const h = png.height * scale
+      page.drawImage(png, { x: a.xPt, y: a.yPt, width: w, height: h })
+    }
+
+    for (const a of currentPageAnnos) {
+      if (a.type !== "text") continue
+      page.drawText(a.text ?? "", {
+        x: a.xPt,
+        y: a.yPt,
+        size: a.sizePt,
+        font: font,
+        color: hexToRgb01(a.colorHex || "#111111"),
+      })
+    }
   }
 
   return new Uint8Array(await pdf.save())
