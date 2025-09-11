@@ -11,6 +11,7 @@ import { Label } from "../ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
 import { TabsContent } from "../ui/tabs"
 import { Textarea } from "../ui/textarea"
+import { Features } from "@/lib/features"
 
 export const TAB_NAME_FILL_SIGN = "fillSign"
 
@@ -66,6 +67,14 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
   const [sigIsDrawing, setSigIsDrawing] = useState(false)
   const [sigDataUrl, setSigDataUrl] = useState<string | null>(null)
   const [sigWidthPt, setSigWidthPt] = useState(180)
+
+  // Typed signature
+  const [typedSigText, setTypedSigText] = useState("")
+  const [typedSigFont, setTypedSigFont] = useState("SignatureFont")
+  const [typedSigSizePx, setTypedSigSizePx] = useState(72)
+  const [typedSigSlantDeg, setTypedSigSlantDeg] = useState(0) // italic-like shear in degrees
+  const [typedSigColor, setTypedSigColor] = useState("#1111FF") // default to your textColor
+  useEffect(() => setTypedSigColor(textColor), [textColor]) // keep in sync with the color picker
 
   // Filename
   const [fileName, setFileName] = useState("filled-signed.pdf")
@@ -400,7 +409,6 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     ctx.strokeStyle = textColor
     ctx.beginPath()
     const r = sigCanvasRef.current.getBoundingClientRect()
-    console.log(r)
     ctx.moveTo(e.clientX - r.left, e.clientY - r.top)
     setSigIsDrawing(true)
   }
@@ -430,6 +438,135 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
     const blob = new Blob([buf], { type: "image/png" })
     setSigDataUrl(URL.createObjectURL(blob))
   }
+
+  const ensureFontLoaded = useCallback(async (family: string, sizePx = 72) => {
+    try {
+      await document.fonts?.load(`${sizePx}px "${family}"`)
+      await document.fonts?.ready
+    } catch {
+      /* ignore if unsupported; browser will fallback */
+    }
+  }, [])
+
+  const makeTypedSigPng = useCallback(async () => {
+    const raw = typedSigText.trim()
+    if (!raw) return
+
+    await ensureFontLoaded(typedSigFont, typedSigSizePx)
+
+    // Prepare lines
+    const lines = raw.split(/\r?\n/)
+    const pad = 12 // transparent padding
+    const lineHeight = Math.round(typedSigSizePx * 1.2)
+
+    // Measure with a scratch canvas
+    const mc = document.createElement("canvas")
+    const mctx = mc.getContext("2d")!
+    mctx.font = `${typedSigSizePx}px "${typedSigFont}", Helvetica, Arial, sans-serif`
+    mctx.textBaseline = "alphabetic"
+
+    let maxW = 0
+    let maxAsc = 0
+    let maxDesc = 0
+
+    const metrics = lines.map((txt) => {
+      const m = mctx.measureText(txt || " ")
+      const asc = m.actualBoundingBoxAscent ?? typedSigSizePx * 0.8
+      const desc = m.actualBoundingBoxDescent ?? typedSigSizePx * 0.2
+      const w = (m.actualBoundingBoxRight ?? m.width) - (m.actualBoundingBoxLeft ?? 0)
+
+      maxW = Math.max(maxW, Math.ceil(w))
+      maxAsc = Math.max(maxAsc, Math.ceil(asc))
+      maxDesc = Math.max(maxDesc, Math.ceil(desc))
+
+      return { txt, asc, desc, w }
+    })
+
+    // Canvas size: tallest baseline box + line spacing between lines
+    const width = Math.max(1, maxW + pad * 2)
+    const height = Math.max(
+      1,
+      pad * 2 + (metrics.length > 0 ? maxAsc + maxDesc + (metrics.length - 1) * lineHeight : lineHeight),
+    )
+
+    // Draw into the real canvas
+    const c = document.createElement("canvas")
+    c.width = width
+    c.height = height
+
+    const ctx = c.getContext("2d")!
+    ctx.clearRect(0, 0, width, height)
+    ctx.font = `${typedSigSizePx}px "${typedSigFont}", Helvetica, Arial, sans-serif`
+    ctx.textBaseline = "alphabetic"
+    ctx.fillStyle = typedSigColor
+
+    // Optional shear for slant
+    const shear = Math.tan((typedSigSlantDeg * Math.PI) / 180)
+    ctx.save()
+    if (typedSigSlantDeg !== 0) ctx.setTransform(1, 0, shear, 1, 0, 0)
+
+    // Draw lines (baseline starts at top padding + ascent)
+    let y = pad + maxAsc
+    for (const m of metrics) {
+      const x = pad
+      ctx.fillText(m.txt, x, y)
+      y += lineHeight
+    }
+    ctx.restore()
+
+    setSigDataUrl(c.toDataURL("image/png"))
+    setTool("stamp")
+  }, [typedSigText, typedSigFont, typedSigSizePx, typedSigSlantDeg, typedSigColor, ensureFontLoaded, setTool])
+
+  const drawImageToSigCanvas = useCallback(
+    async (dataUrl: string) => {
+      if (!sigCanvasRef.current || !dataUrl) return
+
+      const img = new Image()
+      img.decoding = "async"
+      // For data: URLs and same-origin blob: URLs this is fine
+      img.src = dataUrl
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => reject(new Error("Failed to load signature image"))
+      })
+
+      const canvas = sigCanvasRef.current
+      const ctx = canvas.getContext("2d")!
+      const cw = canvas.width
+      const ch = canvas.height
+
+      // Clear previous strokes/preview
+      ctx.clearRect(0, 0, cw, ch)
+
+      // Contain-fit while preserving aspect ratio
+      const iw = img.naturalWidth || img.width
+      const ih = img.naturalHeight || img.height
+      const scale = Math.min(cw / iw, ch / ih)
+      const dw = Math.max(1, Math.floor(iw * scale))
+      const dh = Math.max(1, Math.floor(ih * scale))
+      const dx = Math.floor((cw - dw) / 2)
+      const dy = Math.floor((ch - dh) / 2)
+
+      ctx.drawImage(img, dx, dy, dw, dh)
+    },
+    [sigCanvasRef],
+  )
+
+  // Keep the canvas preview in sync anytime sigDataUrl changes
+  useEffect(() => {
+    if (sigDataUrl) {
+      // show typed or uploaded PNG inside the signature canvas
+      void drawImageToSigCanvas(sigDataUrl)
+    } else {
+      // if cleared, wipe the preview
+      if (sigCanvasRef.current) {
+        const ctx = sigCanvasRef.current.getContext("2d")!
+        ctx.clearRect(0, 0, sigCanvasRef.current.width, sigCanvasRef.current.height)
+      }
+    }
+  }, [sigDataUrl, drawImageToSigCanvas])
 
   // ------------ Export (adjust per-annotation for exact baseline) ------------
   const onDownload = useCallback(async () => {
@@ -684,6 +821,82 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
                 Signature ready. Switch to “Signature” tool and click the page to place.
               </div>
             )}
+          </div>
+
+          {/* Typed signature */}
+          <div className="mt-4 space-y-2 border-t pt-3">
+            <Label>Typed signature</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="col-span-1 sm:col-span-2">
+                <Input
+                  placeholder="Type your name…"
+                  value={typedSigText}
+                  onChange={(e) => setTypedSigText(e.target.value)}
+                />
+              </div>
+
+              {Features.FillSign.signatureFontModifiersEnabled && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs">Font</Label>
+                    <Select value={typedSigFont} onValueChange={setTypedSigFont}>
+                      <SelectTrigger className="w-48">
+                        <SelectValue placeholder="Choose font" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="SignatureFont">SignatureFont</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs">Size (px)</Label>
+                    <Input
+                      type="number"
+                      className="w-24 h-8"
+                      value={typedSigSizePx}
+                      min={24}
+                      max={200}
+                      onChange={(e) => setTypedSigSizePx(Number(e.target.value))}
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs">Slant (°)</Label>
+                    <Input
+                      type="number"
+                      className="w-24 h-8"
+                      value={typedSigSlantDeg}
+                      min={-25}
+                      max={25}
+                      step={1}
+                      onChange={(e) => setTypedSigSlantDeg(Number(e.target.value))}
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs">Color</Label>
+                    <input
+                      type="color"
+                      className="h-8 w-8 rounded"
+                      value={typedSigColor}
+                      onChange={(e) => setTypedSigColor(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="col-span-1 sm:col-span-2 flex flex-wrap gap-2">
+                <Button size="sm" onClick={makeTypedSigPng} disabled={!typedSigText.trim()}>
+                  Create typed signature
+                </Button>
+                {sigDataUrl && (
+                  <div className="text-xs text-gray-500">
+                    Typed signature ready. Switch to “Signature” tool and click the page to place.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
