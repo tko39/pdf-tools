@@ -4,6 +4,7 @@ import { renderAllPageThumbs } from "@/lib/helpers"
 import type { PdfItem } from "@/lib/types"
 import * as pdfjs from "pdfjs-dist"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { PDFDocument } from "pdf-lib"
 
 import { Button } from "../ui/button"
 import { Input } from "../ui/input"
@@ -87,7 +88,6 @@ export function FillSignTab({ items, setError }: { items: PdfItem[]; setError: (
       const thumbs = await renderAllPageThumbs(srcItem.bytes.slice(0), 8) // tiny thumbs; only to get num pages
       setPageCount(thumbs.length)
 
-      const { PDFDocument } = await import("pdf-lib")
       const doc = await PDFDocument.load(srcItem.bytes)
       const pg = doc.getPage(pageIndex)
       setPageWPt(pg.getWidth())
